@@ -85,7 +85,7 @@ const TrackedDevicePose_t & find_pose_in_call_stack()
     bool is_async = strcmp("_ZN13CRenderThread11UpdateAsyncEv", name) == 0;
     if (is_async || strcmp("_ZN13CRenderThread6UpdateEv", name) == 0)
     {
-      Info("find_pose_in_call_stack: is_async=%d | %s", is_async, name);
+      Info("find_pose_in_call_stack: is_async=%d | %s\n", is_async, name);
 
       unw_word_t sp, sp_end;
       unw_get_reg(&cursor, UNW_REG_SP, &sp);
