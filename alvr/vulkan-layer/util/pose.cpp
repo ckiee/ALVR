@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <string.h>
+#include "alvr_server/Logger.h"
 
 #define UNW_LOCAL_ONLY
 #include <libunwind.h>
@@ -61,7 +62,7 @@ bool check_pose(const TrackedDevicePose_t & p)
 // For a smooth experience, the correct pose for a frame must be known.
 // Of course this is not part of vulkan parameters, so we must inspect
 // the stack.
-// First we look for the correct function (CRenderThread::UpdateAsync),
+// First we look for the correct function (CRenderThread::Update[Async]),
 // then we scan all the local variables, and check for a suitable one.
 // Such a variable is a TrackedDevicePose_t, with both booleans to true,
 // which we compare to 1 to avoid false positives, a tracking result of
@@ -81,17 +82,21 @@ const TrackedDevicePose_t & find_pose_in_call_stack()
     char name[1024];
     unw_word_t off;
     unw_get_proc_name(&cursor, name, sizeof(name), &off);
-    if (strcmp("_ZN13CRenderThread11UpdateAsyncEv", name) == 0)
+    bool is_async = strcmp("_ZN13CRenderThread11UpdateAsyncEv", name) == 0;
+    if (is_async || strcmp("_ZN13CRenderThread6UpdateEv", name) == 0)
     {
       unw_word_t sp, sp_end;
       unw_get_reg(&cursor, UNW_REG_SP, &sp);
       unw_step(&cursor);
       unw_get_reg(&cursor, UNW_REG_SP, &sp_end);
+      int valid_index = -1;
       for (uintptr_t addr = sp ; addr < sp_end; addr += 4)
       {
         TrackedDevicePose_t * p = (TrackedDevicePose_t *) addr;
         if (check_pose(*p))
         {
+          valid_index++;
+          if (!is_async && valid_index != 1) continue;
           res = p;
           return *p;
         }
