@@ -54,13 +54,8 @@ void Info(const char *format, ...)
 
 void Debug(const char *format, ...)
 {
-// Use our define instead of _DEBUG - see build.rs for details.
-#ifdef ALVR_DEBUG_LOG
 	va_list args;
 	va_start(args, format);
-	_log(format, args, LogDebug);
+	_log(format, args, LogInfo);
 	va_end(args);
-#else
-	(void)format;
-#endif
 }
