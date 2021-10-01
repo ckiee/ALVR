@@ -47,7 +47,7 @@ encoding_rs_io = "0.1"
 rcgen = "0.8"
 
 [target.'cfg(any(windows, target_os = "linux"))'.dependencies]
-dirs = "3"
+dirs = "4"
 msgbox = "0.6"
 runas = "0.2"
 
