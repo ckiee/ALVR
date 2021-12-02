@@ -1,5 +1,7 @@
 #include "CEncoder.h"
 
+#define VK_ENABLE_BETA_EXTENSIONS
+
 #include <chrono>
 #include <exception>
 #include <memory>
@@ -11,6 +13,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <vulkan/vulkan.hpp>
 
 #include "ALVR-common/packet_types.h"
 #include "alvr_server/ChaperoneUpdater.h"
@@ -20,13 +23,9 @@
 #include "alvr_server/Settings.h"
 #include "alvr_server/Statistics.h"
 #include "alvr_server/include/openvr_math.h"
-#include "protocol.h"
 #include "ffmpeg_helper.h"
-#include "EncodePipeline.h"
-
-extern "C" {
-#include <libavutil/avutil.h>
-}
+#include "protocol.h"
+//#include "EncodePipeline.h"
 
 CEncoder::CEncoder(std::shared_ptr<ClientConnection> listener,
                    std::shared_ptr<PoseHistory> poseHistory)
@@ -59,8 +58,7 @@ void read_exactly(int fd, char *out, size_t size, std::atomic_bool &exiting) {
 
 void read_latest(int fd, char *out, size_t size, std::atomic_bool &exiting) {
     read_exactly(fd, out, size, exiting);
-    while (not exiting)
-    {
+    while (not exiting) {
         timeval timeout{.tv_sec = 0, .tv_usec = 0};
         fd_set read_fd, write_fd, except_fd;
         FD_ZERO(&read_fd);
@@ -86,17 +84,14 @@ int accept_timeout(int socket, std::atomic_bool &exiting) {
         if (count < 0) {
             throw MakeException("select failed: %s", strerror(errno));
         } else if (count == 1) {
-          return accept(socket, NULL, NULL);
+            return accept(socket, NULL, NULL);
         }
     }
     return -1;
 }
 
 #ifdef DEBUG
-void logfn(void*, int level, const char* data, va_list va)
-{
-  vfprintf(stderr, data, va);
-}
+void logfn(void *, int level, const char *data, va_list va) { vfprintf(stderr, data, va); }
 #endif
 
 } // namespace
@@ -124,7 +119,7 @@ void CEncoder::GetFds(int client, int (*received_fds)[6]) {
 
     ret = recvmsg(client, &msg, 0);
     if (ret == -1) {
-      throw MakeException("recvmsg failed: %s", strerror(errno));
+        throw MakeException("recvmsg failed: %s", strerror(errno));
     }
 
     for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
@@ -135,7 +130,7 @@ void CEncoder::GetFds(int client, int (*received_fds)[6]) {
     }
 
     if (cmsg == NULL) {
-      throw MakeException("cmsg is NULL");
+        throw MakeException("cmsg is NULL");
     }
 }
 
@@ -175,89 +170,81 @@ void CEncoder::Run() {
     Info("CEncoder Listening\n");
     int client = accept_timeout(m_socket, m_exiting);
     if (m_exiting)
-      return;
+        return;
     init_packet init;
     read_exactly(client, (char *)&init, sizeof(init), m_exiting);
     if (m_exiting)
-      return;
+        return;
 
     // check that pointer types are null, other values would not make sense over a socket
     assert(init.image_create_info.queueFamilyIndexCount == 0);
     assert(init.image_create_info.pNext == NULL);
 
-    char ifbuf[256];
-    char ifbuf2[256];
-    sprintf(ifbuf, "/proc/%d/cmdline", (int)init.source_pid);
-    std::ifstream ifscmdl(ifbuf);
-    ifscmdl >> ifbuf2;
-    Info("CEncoder client connected, pid %d, cmdline %s\n", (int)init.source_pid, ifbuf2);
-
     try {
         GetFds(client, &m_fds);
 
-      fprintf(stderr, "\n\nWe are initalizing Vulkan in CEncoder thread\n\n\n");
+        fprintf(stderr, "\n\nWe are initalizing Vulkan in CEncoder thread\n\n\n");
+        alvr::VkContext vk_ctx(init.device_name.data());
+        alvr::VkFrameCtx vk_frame_ctx(vk_ctx, init.image_create_info);
 
-#ifdef DEBUG
-      AVUTIL.av_log_set_level(AV_LOG_DEBUG);
-      AVUTIL.av_log_set_callback(logfn);
-#endif
-
-      AVDictionary *d = NULL; // "create" an empty dictionary
-      //av_dict_set(&d, "debug", "1", 0); // add an entry
-      alvr::VkContext vk_ctx(init.device_name.data(), d);
-      alvr::VkFrameCtx vk_frame_ctx(vk_ctx, init.image_create_info);
-
-      std::vector<alvr::VkFrame> images;
+        std::vector<alvr::VkFrame> images;
         images.reserve(3);
-        for (size_t i = 0; i < 3; ++i) {
-            images.emplace_back(vk_ctx, init.image_create_info, init.mem_index, m_fds[2*i], m_fds[2*i+1]);
+        for (size_t i = 0; i < 3; i++) {
+            // We get 6 FDs back. 2 * i are images, 2 * i + 1 are semaphores
+            images.emplace_back(
+                vk_ctx, init.image_create_info, init.mem_index, m_fds[2 * i], m_fds[2 * i + 1]);
         }
 
-      auto encode_pipeline = alvr::EncodePipeline::Create(images, vk_frame_ctx);
+        Info("CEncoder client connected, pid %d\n", (int)init.source_pid);
 
-      fprintf(stderr, "CEncoder starting to read present packets");
+        fprintf(stderr, "CEncoder starting to read present packets");
         present_packet frame_info;
-      std::vector<uint8_t> encoded_data;
-      while (not m_exiting) {
-          read_latest(client, (char *)&frame_info, sizeof(frame_info), m_exiting);
+        std::vector<uint8_t> encoded_data;
+        while (not m_exiting) {
+            read_latest(client, (char *)&frame_info, sizeof(frame_info), m_exiting);
 
-        if (m_listener->GetStatistics()->CheckBitrateUpdated()) {
-          encode_pipeline->SetBitrate(m_listener->GetStatistics()->GetBitrate() * 1000000L); // in bits;
+            // if (m_listener->GetStatistics()->CheckBitrateUpdated()) {
+            //     encode_pipeline->SetBitrate(m_listener->GetStatistics()->GetBitrate() *
+            //                                 1000000L); // in bits;
+            // }
+
+            auto encode_start = std::chrono::steady_clock::now();
+            // encode_pipeline->PushFrame(frame_info.image, m_scheduler.CheckIDRInsertion());
+
+            static_assert(sizeof(frame_info.pose) == sizeof(vr::HmdMatrix34_t &));
+
+            // tranform provided by the compositor needs to be converted back to raw position, as
+            // configured in chaperone
+            auto t = vrmath::matMul33(
+                vrmath::transposeMul33(*(const vr::HmdMatrix34_t *)ZeroToRawPose(false)),
+                (const vr::HmdMatrix34_t &)frame_info.pose);
+
+            auto pose = m_poseHistory->GetBestPoseMatch(t);
+            if (pose) {
+                if (pose->info.FrameIndex < m_poseSubmitIndex) {
+                    ZeroToRawPose(true);
+                }
+                m_poseSubmitIndex = pose->info.FrameIndex;
+            }
+
+            encoded_data.clear();
+
+            // encode here!
+
+            m_listener->SendVideo(encoded_data.data(),
+                                  encoded_data.size(),
+                                  m_poseSubmitIndex + Settings::Instance().m_trackingFrameOffset);
+
+            auto encode_end = std::chrono::steady_clock::now();
+
+            m_listener->GetStatistics()->EncodeOutput(
+                std::chrono::duration_cast<std::chrono::microseconds>(encode_end - encode_start)
+                    .count());
         }
-
-        auto encode_start = std::chrono::steady_clock::now();
-        encode_pipeline->PushFrame(frame_info.image, m_scheduler.CheckIDRInsertion());
-
-        static_assert(sizeof(frame_info.pose) == sizeof(vr::HmdMatrix34_t&));
-
-        // tranform provided by the compositor needs to be converted back to raw position, as configured in chaperone
-        auto t = vrmath::matMul33(vrmath::transposeMul33(*(const vr::HmdMatrix34_t*) ZeroToRawPose(false)), (const vr::HmdMatrix34_t&)frame_info.pose);
-
-        auto pose = m_poseHistory->GetBestPoseMatch(t);
-        if (pose)
-        {
-          if (pose->info.FrameIndex < m_poseSubmitIndex)
-          {
-            ZeroToRawPose(true);
-          }
-          m_poseSubmitIndex = pose->info.FrameIndex;
-        }
-
-        encoded_data.clear();
-        while (encode_pipeline->GetEncoded(encoded_data)) {}
-
-        m_listener->SendVideo(encoded_data.data(), encoded_data.size(), m_poseSubmitIndex + Settings::Instance().m_trackingFrameOffset);
-
-        auto encode_end = std::chrono::steady_clock::now();
-
-        m_listener->GetStatistics()->EncodeOutput(std::chrono::duration_cast<std::chrono::microseconds>(encode_end - encode_start).count());
-
-      }
-    }
-    catch (std::exception &e) {
-      std::stringstream err;
-      err << "error in encoder thread: " << e.what();
-      Error(err.str().c_str());
+    } catch (std::exception &e) {
+        std::stringstream err;
+        err << "error in encoder thread: " << e.what();
+        Error(err.str().c_str());
     }
 
     close(client);

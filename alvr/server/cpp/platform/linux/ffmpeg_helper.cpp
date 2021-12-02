@@ -4,174 +4,103 @@
 
 #include "alvr_server/bindings.h"
 
-#define str(s) #s
-#define LOAD_LIB(LIBNAME, VERSION) \
-	if (not m_##LIBNAME.Load(g_driverRootDir + std::string("/lib"#LIBNAME".so." str(VERSION)))) {\
-		if (not m_##LIBNAME.Load("lib"#LIBNAME".so." str(VERSION))) {\
-			throw std::runtime_error("failed to load lib"#LIBNAME".so." str(VERSION));\
-		}\
-	}\
+// HACK figure out why it is so mad at this type and
+// why i need to cast
+const char **extensionList = (const char**)&VK_EXT_VIDEO_ENCODE_H264_EXTENSION_NAME;
 
-alvr::libav::libav()
-{
-	LOAD_LIB(avutil, AVUTIL_MAJOR)
-	LOAD_LIB(avcodec, AVCODEC_MAJOR)
-	LOAD_LIB(swscale, SWSCALE_MAJOR)
-	LOAD_LIB(avfilter, AVFILTER_MAJOR)
-}
-#undef str
+// VkContext
+alvr::VkContext::VkContext(const char *deviceName) {
+    if (deviceName == NULL) {
+    } // shut up clangd
+    vk::ApplicationInfo applicationInfo("alvr", 1, "Vulkan.hpp", 1, VK_API_VERSION_1_2);
+    vk::InstanceCreateInfo instanceCreateInfo({}, &applicationInfo);
 
-alvr::libav& alvr::libav::instance()
-{
-	static libav instance;
-	return instance;
-}
+    // FIXME destroy the instance too?
+    auto instance = vk::createInstance(instanceCreateInfo);
+    auto physicalDevice = instance.enumeratePhysicalDevices().front(); // TODO pick properly
 
-namespace {
-// it seems that ffmpeg does not provide this mapping
-AVPixelFormat vk_format_to_av_format(vk::Format vk_fmt)
-{
-  for (int f = AV_PIX_FMT_NONE; f < AV_PIX_FMT_NB; ++f)
-  {
-    auto current_fmt = AVUTIL.av_vkfmt_from_pixfmt(AVPixelFormat(f));
-    if (current_fmt and *current_fmt == (VkFormat)vk_fmt)
-      return AVPixelFormat(f);
-  }
-  throw std::runtime_error("unsupported vulkan pixel format " + std::to_string((VkFormat)vk_fmt));
-}
-}
+    float queuePriority = 0.0f;
+    vk::DeviceQueueCreateInfo deviceQueueCreateInfo(
+        vk::DeviceQueueCreateFlags(),
+        static_cast<uint32_t>(0) /*TODO pick device idx properly*/,
+        1,
+        &queuePriority);
 
-std::string alvr::AvException::makemsg(const std::string & msg, int averror)
-{
-  char av_msg[AV_ERROR_MAX_STRING_SIZE];
-  AVUTIL.av_strerror(averror, av_msg, sizeof(av_msg));
-  return msg + " " + av_msg;
-}
-
-alvr::VkContext::VkContext(const char* device, AVDictionary * opt)
-{
-  int ret = AVUTIL.av_hwdevice_ctx_create(&ctx, AV_HWDEVICE_TYPE_VULKAN, device, opt, 0);
-  if (ret)
-    throw AvException("failed to initialize vulkan", ret);
-
-  AVHWDeviceContext *hwctx = (AVHWDeviceContext *)ctx->data;
-  AVVulkanDeviceContext *vkctx = (AVVulkanDeviceContext *)hwctx->hwctx;
+    vk::DeviceCreateInfo deviceCreateInfo(vk::DeviceCreateFlags(), deviceQueueCreateInfo);
+    deviceCreateInfo.ppEnabledExtensionNames = extensionList;
+    deviceCreateInfo.enabledExtensionCount = 1;
+    device = physicalDevice.createDevice(deviceCreateInfo);
 
 #define VK_LOAD_PFN(inst, name) (PFN_##name) vkGetInstanceProcAddr(inst, #name)
-  d.vkImportSemaphoreFdKHR = VK_LOAD_PFN(vkctx->inst, vkImportSemaphoreFdKHR);
+    dispatch.vkImportSemaphoreFdKHR = VK_LOAD_PFN(instance, vkImportSemaphoreFdKHR);
+
+    // construct a CommandPool, then a CommandBuffer from it
+    commandPool = device.createCommandPool(
+        vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlags(), 0 /*TODO dont assume first gpu*/));
+    commandBuffer = device
+                        .allocateCommandBuffers(vk::CommandBufferAllocateInfo(
+                            commandPool, vk::CommandBufferLevel::ePrimary, 1))
+                        .front();
 }
 
-vk::Device alvr::VkContext::get_vk_device() const
-{
-  AVHWDeviceContext *hwctx = (AVHWDeviceContext *)ctx->data;
-  AVVulkanDeviceContext *vkctx = (AVVulkanDeviceContext *)hwctx->hwctx;
-  return vkctx->act_dev;
+alvr::VkContext::~VkContext() {
+    device.destroyCommandPool(commandPool);
+    device.destroy();
 }
 
-alvr::VkContext::~VkContext()
-{
-  AVUTIL.av_buffer_unref(&ctx);
+// VkFrameCtx
+alvr::VkFrameCtx::VkFrameCtx(VkContext &vkContext, vk::ImageCreateInfo image_create_info) {}
+alvr::VkFrameCtx::~VkFrameCtx() {}
+
+// VkFrame
+alvr::VkFrame::VkFrame(const VkContext &vk_ctx,
+                       vk::ImageCreateInfo image_create_info,
+                       size_t memory_index,
+                       int image_fd,
+                       int semaphore_fd)
+    : width(image_create_info.extent.width), height(image_create_info.extent.height) {
+    device = vk_ctx.device;
+
+    // import the image from image_fd
+    vk::ExternalMemoryImageCreateInfo extMemImageInfo;
+    extMemImageInfo.handleTypes = vk::ExternalMemoryHandleTypeFlagBits::eOpaqueFd;
+    image_create_info.pNext = &extMemImageInfo;
+    image_create_info.initialLayout =
+        vk::ImageLayout::eUndefined; // VUID-VkImageCreateInfo-pNext-01443
+    image = device.createImage(image_create_info);
+
+    auto req = device.getImageMemoryRequirements(image);
+
+    vk::MemoryDedicatedAllocateInfo dedicatedMemInfo;
+    dedicatedMemInfo.image = image;
+
+    vk::ImportMemoryFdInfoKHR importMemInfo;
+    importMemInfo.pNext = &dedicatedMemInfo;
+    importMemInfo.handleType = vk::ExternalMemoryHandleTypeFlagBits::eOpaqueFd;
+    importMemInfo.fd = image_fd;
+
+    vk::MemoryAllocateInfo memAllocInfo;
+    memAllocInfo.pNext = &importMemInfo;
+    memAllocInfo.allocationSize = req.size;
+    memAllocInfo.memoryTypeIndex = memory_index;
+
+    mem = device.allocateMemory(memAllocInfo);
+    device.bindImageMemory(image, mem, 0);
+
+    // import the semaphore from image_fd
+    vk::SemaphoreCreateInfo semInfo;
+    semaphore = device.createSemaphore(semInfo);
+
+    vk::ImportSemaphoreFdInfoKHR impSemInfo;
+    impSemInfo.semaphore = semaphore;
+    impSemInfo.handleType = vk::ExternalSemaphoreHandleTypeFlagBits::eOpaqueFd;
+    impSemInfo.fd = semaphore_fd;
+
+    device.importSemaphoreFdKHR(impSemInfo, vk_ctx.dispatch);
 }
 
-alvr::VkFrameCtx::VkFrameCtx(VkContext & vkContext, vk::ImageCreateInfo image_create_info)
-{
-  AVHWFramesContext *frames_ctx = NULL;
-  int err = 0;
-
-  if (!(ctx = AVUTIL.av_hwframe_ctx_alloc(vkContext.ctx))) {
-    throw std::runtime_error("Failed to create vulkan frame context.");
-  }
-  frames_ctx = (AVHWFramesContext *)(ctx->data);
-  frames_ctx->format = AV_PIX_FMT_VULKAN;
-  frames_ctx->sw_format = vk_format_to_av_format(image_create_info.format);
-  frames_ctx->width = image_create_info.extent.width;
-  frames_ctx->height = image_create_info.extent.height;
-  frames_ctx->initial_pool_size = 0;
-  if ((err = AVUTIL.av_hwframe_ctx_init(ctx)) < 0) {
-    AVUTIL.av_buffer_unref(&ctx);
-    throw alvr::AvException("Failed to initialize vulkan frame context:", err);
-  }
-}
-
-alvr::VkFrameCtx::~VkFrameCtx()
-{
-  AVUTIL.av_buffer_unref(&ctx);
-}
-
-alvr::VkFrame::VkFrame(
-    const VkContext& vk_ctx,
-    vk::ImageCreateInfo image_create_info,
-    size_t memory_index,
-    int image_fd, int semaphore_fd):
-  width(image_create_info.extent.width),
-  height(image_create_info.extent.height)
-{
-  device = vk_ctx.get_vk_device();
-
-  vk::ExternalMemoryImageCreateInfo extMemImageInfo;
-  extMemImageInfo.handleTypes = vk::ExternalMemoryHandleTypeFlagBits::eOpaqueFd;
-  image_create_info.pNext = &extMemImageInfo;
-  image_create_info.initialLayout = vk::ImageLayout::eUndefined;// VUID-VkImageCreateInfo-pNext-01443
-  vk::Image image = device.createImage(image_create_info);
-
-  auto req = device.getImageMemoryRequirements(image);
-
-  vk::MemoryDedicatedAllocateInfo dedicatedMemInfo;
-  dedicatedMemInfo.image = image;
-
-  vk::ImportMemoryFdInfoKHR importMemInfo;
-  importMemInfo.pNext = &dedicatedMemInfo;
-  importMemInfo.handleType = vk::ExternalMemoryHandleTypeFlagBits::eOpaqueFd;
-  importMemInfo.fd = image_fd;
-
-  vk::MemoryAllocateInfo memAllocInfo;
-  memAllocInfo.pNext = &importMemInfo;
-  memAllocInfo.allocationSize = req.size;
-  memAllocInfo.memoryTypeIndex = memory_index;
-
-  vk::DeviceMemory mem = device.allocateMemory(memAllocInfo);
-  device.bindImageMemory(image, mem, 0);
-
-  vk::SemaphoreCreateInfo semInfo;
-  vk::Semaphore semaphore = device.createSemaphore(semInfo);
-
-  vk::ImportSemaphoreFdInfoKHR impSemInfo;
-  impSemInfo.semaphore = semaphore;
-  impSemInfo.handleType = vk::ExternalSemaphoreHandleTypeFlagBits::eOpaqueFd;
-  impSemInfo.fd = semaphore_fd;
-
-  device.importSemaphoreFdKHR(impSemInfo, vk_ctx.d);
-
-  av_vkframe = AVUTIL.av_vk_frame_alloc();
-  av_vkframe->img[0] = image;
-  av_vkframe->tiling = (VkImageTiling)image_create_info.tiling;
-  av_vkframe->mem[0] = mem;
-  av_vkframe->size[0] = req.size;
-  av_vkframe->layout[0] = VK_IMAGE_LAYOUT_UNDEFINED;
-  av_vkframe->sem[0] = semaphore;
-}
-
-alvr::VkFrame::~VkFrame()
-{
-  device.destroySemaphore(av_vkframe->sem[0]);
-  device.destroyImage(av_vkframe->img[0]);
-  device.freeMemory(av_vkframe->mem[0]);
-  AVUTIL.av_free(av_vkframe);
-}
-
-std::unique_ptr<AVFrame, std::function<void(AVFrame*)>> alvr::VkFrame::make_av_frame(VkFrameCtx &frame_ctx)
-{
-  std::unique_ptr<AVFrame, std::function<void(AVFrame*)>> frame{
-    AVUTIL.av_frame_alloc(),
-      [](AVFrame *p) {AVUTIL.av_frame_free(&p);}
-  };
-  frame->width = width;
-  frame->height = height;
-  frame->hw_frames_ctx = AVUTIL.av_buffer_ref(frame_ctx.ctx);
-  frame->data[0] = (uint8_t*)av_vkframe;
-  frame->format = AV_PIX_FMT_VULKAN;
-  frame->buf[0] = AVUTIL.av_buffer_alloc(1);
-  frame->pts = std::chrono::steady_clock::now().time_since_epoch().count();
-
-  return frame;
+alvr::VkFrame::~VkFrame() {
+    device.destroySemaphore(semaphore);
+    device.destroyImage(image);
+    device.freeMemory(mem);
 }

@@ -33,6 +33,8 @@ mkShell {
     libunwind
     python3 # for the xcb crate
     libxkbcommon
+    bear
+    tdb
   ];
 
   LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";

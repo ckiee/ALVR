@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <mutex>
-#include <vulkan/vulkan.h>
+#include <vulkan/vulkan.hpp>
 
 struct present_packet {
     uint32_t image;
@@ -17,7 +17,7 @@ struct present_packet {
 struct init_packet {
     uint32_t num_images;
     std::array<char, VK_MAX_PHYSICAL_DEVICE_NAME_SIZE> device_name;
-    VkImageCreateInfo image_create_info;
+    vk::ImageCreateInfo image_create_info;
     size_t mem_index;
     pid_t source_pid;
 };
