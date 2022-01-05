@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <string.h>
+#include <cstdio>
 
 #define UNW_LOCAL_ONLY
 #include <libunwind.h>
@@ -95,6 +96,11 @@ const TrackedDevicePose_t & find_pose_in_call_stack()
           res = p;
           return *p;
         }
+      }
+      static bool pose_warning_printed = false;
+      if (!pose_warning_printed) {
+        fprintf(stderr, "couldn't find a suitable pose handle, head tracking will be worse\n");
+        pose_warning_printed = true;
       }
       return notfound;
     }
