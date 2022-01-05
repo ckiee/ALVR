@@ -40,6 +40,7 @@
 #include <unistd.h>
 #include <vulkan/vulkan.h>
 #include <sys/mman.h>
+#include <sys/ioctl.h>
 
 #include <util/timed_semaphore.hpp>
 
@@ -307,6 +308,16 @@ void swapchain::present_image(uint32_t pending_index) {
         if (ret == -1) {
             //FIXME: try to reconnect?
         }
+
+        int avail_bytes;
+        int res = ioctl(m_socket, FIONREAD, &avail_bytes);
+        if (res != 0) {
+            perror("ioctl");
+            abort();
+        } else {
+            if (avail_bytes != 0) fprintf(stderr, "\nioctl FIONREAD = %d\n", avail_bytes);
+        }
+
     }
 }
 
