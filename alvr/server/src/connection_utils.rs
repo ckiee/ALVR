@@ -49,20 +49,20 @@ pub async fn search_client_loop<F: Future<Output = bool>>(
             return fmt_e!("Error while identifying client");
         }
 
-        if !alvr_common::is_version_compatible(&handshake_packet.version) {
-            let response_bytes = trace_err!(bincode::serialize(&HandshakePacket::Server(
-                ServerHandshakePacket::IncompatibleVersions
-            )))?;
-            handshake_socket
-                .send_to(&response_bytes, client_address)
-                .await
-                .ok();
+        // if !alvr_common::is_version_compatible(&handshake_packet.version) {
+        //     let response_bytes = trace_err!(bincode::serialize(&HandshakePacket::Server(
+        //         ServerHandshakePacket::IncompatibleVersions
+        //     )))?;
+        //     handshake_socket
+        //         .send_to(&response_bytes, client_address)
+        //         .await
+        //         .ok();
 
-            alvr_session::log_event(ServerEvent::ClientFoundWrongVersion(
-                handshake_packet.version.to_string(),
-            ));
-            return fmt_e!("Found ALVR client with incompatible version");
-        }
+        //     alvr_session::log_event(ServerEvent::ClientFoundWrongVersion(
+        //         handshake_packet.version.to_string(),
+        //     ));
+        //     return fmt_e!("Found ALVR client with incompatible version");
+        // }
 
         if !client_found_cb(handshake_packet.clone()).await {
             let response_bytes = trace_err!(bincode::serialize(&HandshakePacket::Server(
