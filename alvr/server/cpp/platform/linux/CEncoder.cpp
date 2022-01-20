@@ -219,7 +219,7 @@ void CEncoder::Run() {
 
       auto encode_pipeline = alvr::EncodePipeline::Create(images, vk_frame_ctx);
 
-      fprintf(stderr, "CEncoder starting to read present packets");
+      fprintf(stderr, "CEncoder starting to read present packets\n");
       present_packet frame_info;
       std::vector<uint8_t> encoded_data;
       while (not m_exiting) {
@@ -235,15 +235,31 @@ void CEncoder::Run() {
         static_assert(sizeof(frame_info.pose) == sizeof(vr::HmdMatrix34_t&));
 
         // tranform provided by the compositor needs to be converted back to raw position, as configured in chaperone
-        auto t = vrmath::matMul33(vrmath::transposeMul33(*(const vr::HmdMatrix34_t*) ZeroToRawPose(false)), (const vr::HmdMatrix34_t&)frame_info.pose);
+        // auto t = vrmath::matMul33(vrmath::transposeMul33(*(const vr::HmdMatrix34_t*) ZeroToRawPose(false)), (const vr::HmdMatrix34_t&)frame_info.pose);
 
-        auto pose = m_poseHistory->GetBestPoseMatch(t);
+
+        const int timingArraySize = 100;
+        vr::Compositor_FrameTiming timing[timingArraySize];
+        timing[0].m_nSize = sizeof(vr::Compositor_FrameTiming);
+        vr::VRServerDriverHost()->GetFrameTimings(&timing[0], timingArraySize);
+        int matchingTimingIdx = 0;
+        for (int i = 0; i < timingArraySize; i++) {
+            if (timing[i].m_nFrameIndex == frame_info.frame) {
+                 matchingTimingIdx = i;
+            }
+        }
+
+        if (!matchingTimingIdx) {
+            fprintf(stderr, "aw jeez oh gawd cant find the right frame, latest=%d, wanted=%d\n", timing[0].m_nFrameIndex, frame_info.frame);
+        }
+
+        auto pose = m_poseHistory->GetBestPoseMatch((const vr::HmdMatrix34_t&) timing[matchingTimingIdx].m_HmdPose.mDeviceToAbsoluteTracking.m[0]);
         if (pose)
         {
-          if (pose->info.FrameIndex < m_poseSubmitIndex)
-          {
-            ZeroToRawPose(true);
-          }
+          // if (pose->info.FrameIndex < m_poseSubmitIndex)
+          // {
+          //   ZeroToRawPose(true);
+          // }
           m_poseSubmitIndex = pose->info.FrameIndex;
         }
 
