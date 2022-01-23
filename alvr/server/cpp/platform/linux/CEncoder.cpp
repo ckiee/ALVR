@@ -21,6 +21,7 @@
 #include "alvr_server/Settings.h"
 #include "alvr_server/Statistics.h"
 #include "alvr_server/include/openvr_math.h"
+#include "alvr_server/Utils.h"
 #include "protocol.h"
 #include "ffmpeg_helper.h"
 #include "EncodePipeline.h"
@@ -238,7 +239,7 @@ void CEncoder::Run() {
         // auto t = vrmath::matMul33(vrmath::transposeMul33(*(const vr::HmdMatrix34_t*) ZeroToRawPose(false)), (const vr::HmdMatrix34_t&)frame_info.pose);
 
 
-        const int timingArraySize = 100;
+        const int timingArraySize = 10;
         vr::Compositor_FrameTiming timing[timingArraySize];
         timing[0].m_nSize = sizeof(vr::Compositor_FrameTiming);
         vr::VRServerDriverHost()->GetFrameTimings(&timing[0], timingArraySize);
@@ -249,9 +250,12 @@ void CEncoder::Run() {
             }
         }
 
-        if (!matchingTimingIdx) {
-            fprintf(stderr, "aw jeez oh gawd cant find the right frame, latest=%d, wanted=%d\n", timing[0].m_nFrameIndex, frame_info.frame);
-        }
+        // if (!matchingTimingIdx) {
+        //     long timestamp = GetTimestampUs();
+        //     fprintf(stderr, "aw jeez oh gawd cant find the right frame, latestSect=%ld, now=%ld\n",
+        //             timestamp - frame_info.first_frame_us,
+        //             (long)(timing[0].m_flSystemTimeInSeconds * 1e+6));
+        // }
 
         auto pose = m_poseHistory->GetBestPoseMatch((const vr::HmdMatrix34_t&) timing[matchingTimingIdx].m_HmdPose.mDeviceToAbsoluteTracking.m[0]);
         if (pose)

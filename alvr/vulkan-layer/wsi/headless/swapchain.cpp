@@ -295,6 +295,10 @@ void swapchain::present_image(uint32_t pending_index) {
     if (in_flight_index != UINT32_MAX)
         unpresent_image(in_flight_index);
     in_flight_index = pending_index;
+    if (!m_first_frame_us) {
+        auto duration = std::chrono::system_clock::now().time_since_epoch();
+        m_first_frame_us = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+    }
     if (!m_connected) {
         m_connected = try_connect();
     }
@@ -303,6 +307,7 @@ void swapchain::present_image(uint32_t pending_index) {
         present_packet packet;
         packet.image = pending_index;
         packet.frame = m_display.m_vsync_count;
+        packet.first_frame_us = m_first_frame_us;
         memcpy(&packet.pose, pose, sizeof(packet.pose));
         ret = write(m_socket, &packet, sizeof(packet));
         if (ret == -1) {

@@ -11,6 +11,7 @@
 struct present_packet {
     uint32_t image;
     uint32_t frame;
+    uint32_t first_frame_us;
     float pose[3][4];
 };
 

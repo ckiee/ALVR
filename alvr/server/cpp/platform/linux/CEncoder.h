@@ -29,6 +29,7 @@ class CEncoder : public CThread {
     std::atomic_bool m_exiting{false};
     IDRScheduler m_scheduler;
     int m_socket;
+    int m_vulkanToPoseOffset;
     std::string m_socketPath;
     int m_fds[6];
 };
