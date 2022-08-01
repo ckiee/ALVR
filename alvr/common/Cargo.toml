@@ -53,7 +53,7 @@ runas = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 gfx-backend-dx11 = "=0.6.17"
-widestring = "0.4"
+widestring = "1.0"
 winapi = { version = "0.3", features = [
     "impl-default",
     "combaseapi",
