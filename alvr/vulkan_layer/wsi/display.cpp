@@ -19,8 +19,18 @@ VkFence wsi::display::get_vsync_fence()
   VkQueue queue;
   VkFenceCreateInfo fence_info = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, 0};
   m_device_data.disp.CreateFence(m_device_data.device, &fence_info, nullptr, &vsync_fence);
-  m_device_data.disp.GetDeviceQueue(m_device_data.device, m_queue_family_index, m_queue_index, &queue);
-  m_device_data.SetDeviceLoaderData(m_device_data.device, queue);
+  // Thread 1, Frame 0:
+  // vkGetDeviceQueue(device, queueFamilyIndex, queueIndex, pQueue) returns void:
+  //     device:                         VkDevice = 0x55c1dcd0f870 (!!ckie: device matches..)
+  //     queueFamilyIndex:               uint32_t = 0
+  //     queueIndex:                     uint32_t = 4294967295 (this is wrong!!!)
+  //     pQueue:                         VkQueue* = 0 (!!!ckie:: this is the bad bit!!!!!!!!!!!)
+  m_device_data.disp.GetDeviceQueue(m_device_data.device, 0/*m_queue_family_index, same as the next arg*/, 0/*used to be m_queue_index, experiment since it seems unusually high.
+                                                                                  * experiment worked! */, &queue);
+  printf("cookie jfdsiwfwj!!!!!!!!!!!!!!!1!!!!!!!!1 device=%x    queue=%x\n",m_device_data.device,queue);
+  // Crashes on this call. See ~/git/ALVR/vrcompositor_apidump.ckie
+  m_device_data.SetDeviceLoaderData(m_device_data.device, queue);//queue is NULL for some reason, &queue is not NULL ofc
+
   m_vsync_thread = std::thread([this, queue]()
       {
       auto refresh = Settings::Instance().m_refreshRate;

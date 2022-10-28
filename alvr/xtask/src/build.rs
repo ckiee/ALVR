@@ -159,7 +159,7 @@ pub fn build_server(
             sh.create_dir(&lib_dir).unwrap();
             let _push_guard = sh.push_dir(&lib_dir);
             for lib_path in sh
-                .read_dir(afs::deps_dir().join("linux/ffmpeg/alvr_build/lib"))
+                .read_dir("/nix/store/9mziw35h0qj7adlqvf0hhdisb2kaxpa4-ffmpeg-full-4.4.2")
                 .unwrap()
                 .into_iter()
                 .filter(|path| path.file_name().unwrap().to_string_lossy().contains(".so."))
@@ -179,13 +179,13 @@ pub fn build_server(
                 }
             }
             // copy ffmpeg shared lib dependencies.
-            for solib in ["libx264.so", "libx265.so"] {
-                let src_libs = dependencies::find_resolved_so_paths(&libavcodec_so, solib);
-                if !src_libs.is_empty() {
-                    let src_lib = src_libs.first().unwrap();
-                    sh.copy_file(&src_lib, ".").unwrap();
-                }
-            }
+            // for solib in ["libx264.so", "libx265.so"] {
+            //     let src_libs = dependencies::find_resolved_so_paths(&libavcodec_so, solib);
+            //     if !src_libs.is_empty() {
+            //         let src_lib = src_libs.first().unwrap();
+            //         sh.copy_file(&src_lib, ".").unwrap();
+            //     }
+            // }
         }
     }
 
