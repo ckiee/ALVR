@@ -3,19 +3,7 @@ use pkg_config;
 use std::{env, path::PathBuf};
 
 fn get_ffmpeg_path() -> PathBuf {
-    let ffmpeg_path = alvr_filesystem::deps_dir()
-        .join(if cfg!(target_os = "linux") {
-            "linux"
-        } else {
-            "windows"
-        })
-        .join("ffmpeg");
-
-    if cfg!(target_os = "linux") {
-        ffmpeg_path.join("alvr_build")
-    } else {
-        ffmpeg_path
-    }
+PathBuf::from("/nix/store/9mziw35h0qj7adlqvf0hhdisb2kaxpa4-ffmpeg-full-4.4.2") // HACK
 }
 
 #[cfg(feature = "local_ffmpeg")]

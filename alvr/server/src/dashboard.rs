@@ -35,6 +35,7 @@ const SERVER_URL: &str = "http://127.0.0.1:8082";
 // this thread gets interrupted when SteamVR closes
 // todo: handle this in a better way
 pub fn ui_thread() -> StrResult {
+    return Ok(()); //FIXME: figure out why it crashes on my NixOS
     const WINDOW_WIDTH: u32 = 800;
     const WINDOW_HEIGHT: u32 = 600;
 

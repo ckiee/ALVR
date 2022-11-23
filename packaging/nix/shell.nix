@@ -9,7 +9,7 @@ mkShell {
     alsaLib
     openssl
     glib
-    (ffmpeg-full.override { nonfreeLicensing = true; samba = null; })
+    (ffmpeg-full.override {  samba = null; })
     cairo
     pango
     atk
@@ -34,6 +34,7 @@ mkShell {
     python3 # for the xcb crate
     libxkbcommon
     jack2
+    bear
   ];
 
   LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
@@ -41,4 +42,15 @@ mkShell {
   shellHook = ''
     export PATH=$(pwd)/android:$PATH
   '';
+  LD_LIBRARY_PATH =
+    lib.makeLibraryPath [
+      libGL
+      libxkbcommon
+      wayland
+      xorg.libX11
+      xorg.libXcursor
+      xorg.libXi
+      xorg.libXrandr
+    ];
+
 }

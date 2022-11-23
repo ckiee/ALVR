@@ -99,18 +99,6 @@ pub fn build_server(
         .unwrap();
     }
 
-    // Build dashboard
-    {
-        let _push_guard = sh.push_dir(afs::crate_dir("dashboard"));
-        cmd!(sh, "cargo build {common_flags_ref...}").run().unwrap();
-
-        sh.copy_file(
-            artifacts_dir.join(afs::exec_fname("alvr_dashboard")),
-            build_layout.dashboard_exe(),
-        )
-        .unwrap();
-    }
-
     // copy dependencies
     if cfg!(windows) {
         command::copy_recursive(
@@ -123,7 +111,7 @@ pub fn build_server(
         // copy ffmpeg binaries
         if gpl {
             let bin_dir = &build_layout.openvr_driver_lib_dir();
-            sh.create_dir(bin_dir).unwrap();
+            sh.create_dir(&bin_dir).unwrap();
             for lib_path in sh
                 .read_dir(afs::deps_dir().join("windows/ffmpeg/bin"))
                 .unwrap()
@@ -168,10 +156,10 @@ pub fn build_server(
         if gpl {
             let lib_dir = &build_layout.openvr_driver_root_dir;
             let mut libavcodec_so = std::path::PathBuf::new();
-            sh.create_dir(lib_dir).unwrap();
-            let _push_guard = sh.push_dir(lib_dir);
+            sh.create_dir(&lib_dir).unwrap();
+            let _push_guard = sh.push_dir(&lib_dir);
             for lib_path in sh
-                .read_dir(afs::deps_dir().join("linux/ffmpeg/alvr_build/lib"))
+                .read_dir("/nix/store/9mziw35h0qj7adlqvf0hhdisb2kaxpa4-ffmpeg-full-4.4.2")
                 .unwrap()
                 .into_iter()
                 .filter(|path| path.file_name().unwrap().to_string_lossy().contains(".so."))
@@ -191,13 +179,13 @@ pub fn build_server(
                 }
             }
             // copy ffmpeg shared lib dependencies.
-            for solib in ["libx264.so", "libx265.so"] {
-                let src_libs = dependencies::find_resolved_so_paths(&libavcodec_so, solib);
-                if !src_libs.is_empty() {
-                    let src_lib = src_libs.first().unwrap();
-                    sh.copy_file(src_lib, ".").unwrap();
-                }
-            }
+            // for solib in ["libx264.so", "libx265.so"] {
+            //     let src_libs = dependencies::find_resolved_so_paths(&libavcodec_so, solib);
+            //     if !src_libs.is_empty() {
+            //         let src_lib = src_libs.first().unwrap();
+            //         sh.copy_file(&src_lib, ".").unwrap();
+            //     }
+            // }
         }
     }
 
@@ -298,7 +286,7 @@ pub fn build_quest_client(profile: Profile) {
 
     let client_dir = afs::workspace_dir().join("android");
 
-    const ARTIFACT_NAME: &str = "alvr_client_quest";
+    const ARTIFACT_NAME: &str = "alvr_client_oculus_quest";
 
     let _push_guard = sh.push_dir(&client_dir);
     if cfg!(windows) {
