@@ -12,12 +12,12 @@ class EncodePipelineSW: public EncodePipeline
 {
 public:
   ~EncodePipelineSW();
-  EncodePipelineSW(VkFrame &input_frame, VkFrameCtx& vk_frame_ctx, uint32_t width, uint32_t height);
+  EncodePipelineSW(std::vector<VkFrame> &input_frames, VkFrameCtx& vk_frame_ctx);
 
-  void PushFrame(uint64_t targetTimestampNs, bool idr) override;
+  void PushFrame(uint32_t frame_index, uint64_t targetTimestampNs, bool idr) override;
 
 private:
-  AVFrame *vk_frame;
+  std::vector<AVFrame *> vk_frames;
   AVFrame * transferred_frame = nullptr;
   AVFrame * encoder_frame = nullptr;
   SwsContext *scaler_ctx = nullptr;

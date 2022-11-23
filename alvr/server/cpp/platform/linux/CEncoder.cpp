@@ -24,7 +24,6 @@
 #include "protocol.h"
 #include "ffmpeg_helper.h"
 #include "EncodePipeline.h"
-#include "FrameRender.h"
 
 extern "C" {
 #include <libavutil/avutil.h>
@@ -196,14 +195,18 @@ void CEncoder::Run() {
       AVUTIL.av_log_set_callback(logfn);
 #endif
 
-      alvr::VkContext vk_ctx(init.device_name.data());
+      AVDictionary *d = NULL; // "create" an empty dictionary
+      //av_dict_set(&d, "debug", "1", 0); // add an entry
+      alvr::VkContext vk_ctx(init.device_name.data(), d);
+      alvr::VkFrameCtx vk_frame_ctx(vk_ctx, init.image_create_info);
 
-      FrameRender render(vk_ctx, init, m_fds);
-      auto output = render.CreateOutput();
+      std::vector<alvr::VkFrame> images;
+        images.reserve(3);
+        for (size_t i = 0; i < 3; ++i) {
+            images.emplace_back(vk_ctx, init.image_create_info, init.mem_index, m_fds[2*i], m_fds[2*i+1]);
+        }
 
-      alvr::VkFrameCtx vk_frame_ctx(vk_ctx, output.imageInfo);
-      alvr::VkFrame frame(vk_ctx, output.image, output.imageInfo, output.size, output.memory);
-      auto encode_pipeline = alvr::EncodePipeline::Create(frame, vk_frame_ctx, render.GetEncodingWidth(), render.GetEncodingHeight());
+      auto encode_pipeline = alvr::EncodePipeline::Create(images, vk_frame_ctx);
 
       fprintf(stderr, "CEncoder starting to read present packets");
       present_packet frame_info;
@@ -221,15 +224,14 @@ void CEncoder::Run() {
           continue;
         }
 
-        // Close enough to present
+        // Linux does not really have a present event. This place is the closest one.
         ReportPresent(pose->targetTimestampNs);
 
-        render.Render(frame_info.image, frame_info.semaphore_value);
-
+        // Linux has currently no compositor. Report frame has been composed right away
         ReportComposed(pose->targetTimestampNs);
 
         auto encode_start = std::chrono::steady_clock::now();
-        encode_pipeline->PushFrame(pose->targetTimestampNs, m_scheduler.CheckIDRInsertion());
+        encode_pipeline->PushFrame(frame_info.image, pose->targetTimestampNs, m_scheduler.CheckIDRInsertion());
 
         static_assert(sizeof(frame_info.pose) == sizeof(vr::HmdMatrix34_t&));
 

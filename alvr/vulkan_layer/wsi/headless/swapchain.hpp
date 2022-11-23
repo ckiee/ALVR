@@ -75,8 +75,6 @@ class swapchain : public wsi::swapchain_base {
      */
     VkResult create_image(const VkImageCreateInfo &image_create_info, wsi::swapchain_image &image);
 
-    void submit_image(uint32_t pendingIndex);
-
     /**
      * @brief Method to perform a present - just calls unpresent_image on headless
      *

@@ -58,7 +58,6 @@ struct swapchain_image {
 
     VkFence present_fence{VK_NULL_HANDLE};
     VkSemaphore semaphore{VK_NULL_HANDLE};
-    uint64_t semaphore_value = 0;
 
     TrackedDevicePose_t pose;
 };
@@ -307,9 +306,6 @@ class swapchain_base {
      */
     virtual VkResult create_image(const VkImageCreateInfo &image_create_info,
                                   swapchain_image &image) = 0;
-
-
-    virtual void submit_image(uint32_t pending_index) = 0;
 
     /**
      * @brief Method to present and image
