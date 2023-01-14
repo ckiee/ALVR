@@ -38,6 +38,12 @@ in mkShell {
     libxkbcommon
     jack2
     bear
+    unzip
+    nasm
+    cargo
+    libdrm
+    x264
+    x265
   ];
 
   VK_LAYER_PATH = "${lunarg}/etc/vulkan/explicit_layer.d:${vulkan-validation-layers}";
